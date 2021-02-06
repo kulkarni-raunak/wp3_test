@@ -16,8 +16,10 @@ def ObstacleList_callback(msg):
 	global obstacles_list	
 	received_obstacleslist = msg
 	f=open("Obstacles_WP3.txt", "a+")
-	f.write('No. of Objects received: ' + str(len(received_obstacleslist.objects)) + '\n')
-	#print('------------------New One-----------------------') 
+	f.write('No. of Objects received: ' + str((received_obstacleslist)) + '\n')
+	print(str(received_obstacleslist.objects[6].pose.position))
+    
+    
 
 if __name__ == '__main__':
 	try:
@@ -27,7 +29,7 @@ if __name__ == '__main__':
 		waypoints_sub = rospy.Subscriber('/prediction/motion_predictor/objects', DetectedObjectArray,ObstacleList_callback)
 		#while not rospy.is_shutdown(): #rate can be modified when needed
 			#time.sleep(0.2)
-		#rospy.spin()
+		rospy.spin()
 			
 	except rospy.ROSInterruptException:
 		

@@ -31,7 +31,7 @@ if __name__ == '__main__':
 		path_wp_y = np.array([])
 		path_wp_z = np.array([])
 		rospy.init_node('wp3_waypoints', anonymous=True)
-		waypoints_sub = rospy.Subscriber('/final_waypoints', Lane,waypoints_callback)
+		waypoints_sub = rospy.Subscriber('/base_waypoints', Lane,waypoints_callback)
 		while not rospy.is_shutdown(): #rate can be modified when needed
 			if (len(path_wp_x) and len(path_wp_y) and len(path_wp_z))> 0 : 
 				print('Entered if loop'+'\n')
