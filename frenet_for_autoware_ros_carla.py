@@ -12,7 +12,7 @@
 #- [Optimal trajectory generation for dynamic street scenarios in a Frenet Frame]
 #(https://www.youtube.com/watch?v=Cj6tAQe7UCY)
 
-
+import time
 import rospy
 import tf
 import numpy as np
@@ -29,39 +29,24 @@ import math
 import sys
 import os
 
-final_waypoints = Lane()  #this is the main output to the control to follow
-
+final_waypoints = Lane()  #this will have the main output 
+base_waypoints = Lane()  #this will have the main input
 path_wp_x, path_wp_y, path_wp_z= np.array([]), np.array([]), np.array([])
 path_wp_vx, path_wp_vy, path_wp_vz= np.array([]), np.array([]), np.array([])
 
-current_speed, v= 0.0 , 0.0
+current_speed, previous_speed, v, x, y, z, roll, nearest_waypoint_roll= 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+fx, fy, fp = [],[],[]
 
-
-#sys.path.append(os.path.dirname(os.path.abspath(__file__)) +
-#                "/../QuinticPolynomialsPlanner/")
-#sys.path.append(os.path.dirname(os.path.abspath(__file__)) +
-#                "/../CubicSpline/")
-
-# clone github repository URL = 'https://github.com/akhilkanduri/Github_WP3_Autoware.git' : Add this to Docker File
-
-URL = 'https://github.com/akhilkanduri/Github_WP3_Autoware.git'
-# import git # to clone if not added in dockerfile
-# git.Git.clone(URL)
-
-# method 1
-
-CurrentDirectory= os.getcwd()
-print(os.getcwd())
-Directory_List = [x[0] for x in os.walk(os.getcwd())]
-print(Directory_List)  # Just for reference to check directory
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) +
+                "/../QuinticPolynomialsPlanner/")
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) +
+                "/../CubicSpline/")
 
 try:
     from quintic_polynomials_planner import QuinticPolynomial
     import cubic_spline_planner
 except ImportError:
-   raise
-   print('Error: Check Path')
-    
+    raise
 
 SIM_LOOP = 500
 
@@ -77,7 +62,7 @@ MIN_T = 4.0  # min prediction time [m]
 TARGET_SPEED = 30.0 / 3.6  # target speed [m/s]
 D_T_S = 5.0 / 3.6  # target speed sampling length [m/s]
 N_S_SAMPLE = 1  # sampling number of target speed
-ROBOT_RADIUS = 2.0  # robot radius [m]
+ROBOT_RADIUS = 2.5  # robot radius [m]
 
 # cost weights
 K_J = 0.1
@@ -294,42 +279,58 @@ def generate_target_course(x, y):
 
 
 def waypoints_callback(msg):
-	global path_wp_x,path_wp_y,path_wp_z,path_wp_vx,path_wp_vy,path_wp_vz,final_waypoints
+	global path_wp_x,path_wp_y,path_wp_z,path_wp_vx,path_wp_vy,path_wp_vz,final_waypoints, nearest_waypoint_roll, base_waypoints
 	final_waypoints = msg
-	received_waypoints = msg
+	base_waypoints = msg
+	path_wp_x=np.array([])
+	path_wp_y=np.array([])
+	path_wp_z=np.array([])
+	path_wp_vx=np.array([])
+	path_wp_vy=np.array([])
+	path_wp_vz=np.array([])
+	nearest_waypoint_quat = (base_waypoints.waypoints[0].pose.pose.orientation.x, base_waypoints.waypoints[0].pose.pose.orientation.y, base_waypoints.waypoints[0].pose.pose.orientation.z, base_waypoints.waypoints[0].pose.pose.orientation.w)
+	nearest_waypoint_eul = tf.transformations.euler_from_quaternion(nearest_waypoint_quat)
+	nearest_waypoint_roll = nearest_waypoint_eul[0]
 	f=open("testing_waypoints.txt", "a+")
-	f.write('No. of Waypoints received: ' + str(len(received_waypoints.waypoints)) + '\n')
-	for i in range(len(received_waypoints.waypoints)):
-		f.write(str(received_waypoints.waypoints[i]) + '\n')
-		path_wp_x = np.append(path_wp_x,received_waypoints.waypoints[i].pose.pose.position.x)
-		path_wp_y = np.append(path_wp_y,received_waypoints.waypoints[i].pose.pose.position.y)
-		path_wp_z = np.append(path_wp_z,received_waypoints.waypoints[i].pose.pose.position.z)
-		path_wp_vx = np.append(path_wp_vx,received_waypoints.waypoints[i].twist.twist.linear.x)
-		path_wp_vy = np.append(path_wp_vy,received_waypoints.waypoints[i].twist.twist.linear.y)
-		path_wp_vz = np.append(path_wp_vz,received_waypoints.waypoints[i].twist.twist.linear.z)
+	f.write('No. of Waypoints received: ' + str(len(base_waypoints.waypoints)) + '\n')
+	for i in range(len(base_waypoints.waypoints)):
+		f.write(str(base_waypoints.waypoints[i]) + '\n')
+		path_wp_x = np.append(path_wp_x,base_waypoints.waypoints[i].pose.pose.position.x)
+		path_wp_y = np.append(path_wp_y,base_waypoints.waypoints[i].pose.pose.position.y)
+		path_wp_z = np.append(path_wp_z,base_waypoints.waypoints[i].pose.pose.position.z)
+		path_wp_vx = np.append(path_wp_vx,base_waypoints.waypoints[i].twist.twist.linear.x)
+		path_wp_vy = np.append(path_wp_vy,base_waypoints.waypoints[i].twist.twist.linear.y)
+		path_wp_vz = np.append(path_wp_vz,base_waypoints.waypoints[i].twist.twist.linear.z)
 	print('waypoints received') 
 
 def current_pose_callback(msg):	
-	global x,y,z	
+	global x,y,z,roll
 	#received_pose = msg
 	x = msg.pose.position.x
-	y = (msg.pose.position.y) #not sure to multiply by -1 or not
+	y = (msg.pose.position.y) 
 	z = msg.pose.position.z
-	quat = ( msg.pose.orientation.x, msg.pose.orientation.x, msg.pose.orientation.x, msg.pose.orientation.x)
+	quat = ( msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.x)
 	eul = tf.transformations.euler_from_quaternion(quat)
 	roll = eul[0]
 	pitch = eul[1]
-	yaw = eul[2]  #not sure to multiply by -1 or not
+	yaw = eul[2]  
 	f=open("testing_postion.txt", "a+")
 	f.write(str(msg))
 
 def current_velocity_callback(msg):	
-	global current_speed, v
+	global current_speed, v , previous_speed
 	v = msg.twist.linear
 	current_speed = np.sqrt(v.x + v.y + v.z)
 	#print(len(current_speed))
 	f=open("testing_velocity.txt", "a+")
 	f.write(str(msg))
+
+
+def obstacle_callback(msg):
+	received_obstacle = msg
+	f=open("testing_obstacles_full_msg.txt", "a+")
+	f.write( str(received_obstacle) + '\n')
+
 
 def main():
     print(__file__ + " start!!")
@@ -393,29 +394,37 @@ def main():
         plt.show()
 
 def wp3_frenet():
+	global fx, fy, path_wp_x, path_wp_y, previous_speed
 	print(__file__ + " start!!")
-
+	start = time.time()
+	fx = []
+	fy = []
 	# way points
 	wx = path_wp_x
 	wy = path_wp_y
 	# obstacle lists
 	ob = np.array([])
-
+	
+	while not len(wx)==len(wy):
+		wx = path_wp_x
+		wy = path_wp_y
+	
 	tx, ty, tyaw, tc, csp = generate_target_course(wx, wy)
-
+	
+	
 	# initial state
-	c_speed = current_speed # current speed [m/s]
-	c_d = np.sqrt((x-path_wp_x[0])**2 + (y-path_wp_y[0])**2)#current lateral position
-	c_d_d =  np.sqrt((v.x-path_wp_vx[0])**2 + (v.y-path_wp_vy[0])**2) #current lateral speed
-	c_d_dd = 0.0  # current lateral acceleration [m/s]
+	c_speed = current_speed/ 3.6 # current speed [m/s]
+	c_d = np.sqrt((x-wx[0])**2 + (y-wy[0])**2)#current lateral position
+	c_d_d =  c_speed*np.sin(roll-nearest_waypoint_roll)  #current lateral speed
+	c_d_dd = (c_speed - (previous_speed)/3.6)/(start - time.time())**2 # current lateral acceleration [m/s]
 	s0 = 0.0  # current course position
 	path = frenet_optimal_planning(csp, s0, c_speed, c_d, c_d_d, c_d_dd, ob) #commented obstacles 
-	
+	previous_speed = current_speed
 	if np.hypot(path.x[1] - tx[-1], path.y[1] - ty[-1]) <= 1.0:
 		print("Goal reached")
-	for i in range(len(final_waypoints.waypoints)):
-		final_waypoints.waypoints[i].pose.pose.position.x = path.x[i]
-		final_waypoints.waypoints[i].pose.pose.position.y = path.y[i]
+	for i in range(len(path.x)):
+		fx.append(path.x[i])
+		fy.append(path.y[i])
 
 if __name__ == '__main__':
 	try:
@@ -426,15 +435,26 @@ if __name__ == '__main__':
 		pose_sub = rospy.Subscriber('/current_pose',PoseStamped,current_pose_callback)
 		velo_sub = rospy.Subscriber('/current_velocity',TwistStamped,current_velocity_callback)
 		waypoints_sub = rospy.Subscriber('/base_waypoints', Lane,waypoints_callback)
-		
+		objects_sub = rospy.Subscriber('/prediction/motion_predictor/objects', DetectedObjectArray,obstacle_callback)
 		#main()
 		
 		rate = rospy.Rate(10) # 10hz	
 		while not rospy.is_shutdown():
 			if final_waypoints.waypoints:
 				wp3_frenet()
-				fp = final_waypoints
-				final_waypoints_pub.publish(fp)
+				time.sleep(0.2)
+				if len(fx)>0:
+					plt.gcf()
+					plt.clf()
+					for i in range(len(fx)):
+						final_waypoints.waypoints[i].pose.pose.position.x = fx[i]
+						final_waypoints.waypoints[i].pose.pose.position.y = fy[i]
+						plt.plot(fx[i],fy[i],"xk")
+				plt.plot(path_wp_x,path_wp_y, "or")
+				plt.grid(True)
+				plt.pause(0.001)
+				
+				final_waypoints_pub.publish(final_waypoints)
 			rate.sleep()
 		rospy.spin()
 	except rospy.ROSInterruptException:
