@@ -20,6 +20,8 @@ import numpy as np
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TwistStamped
 
+from std_msgs.msg import Int32
+
 from autoware_msgs.msg import Lane
 from autoware_msgs.msg import DetectedObjectArray
 
@@ -34,8 +36,8 @@ base_waypoints = Lane()  #this will have the main input
 path_wp_x, path_wp_y, path_wp_z= np.array([]), np.array([]), np.array([])
 path_wp_vx, path_wp_vy, path_wp_vz= np.array([]), np.array([]), np.array([])
 
-current_speed, previous_speed, v, x, y, z, roll, nearest_waypoint_roll= 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-fx, fy, fp = [],[],[]
+current_speed, previous_speed, v, x, y, z, roll, nearest_waypoint_roll, current_course_position= 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+fp = []
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) +
                 "/../QuinticPolynomialsPlanner/")
@@ -282,26 +284,31 @@ def waypoints_callback(msg):
 	global path_wp_x,path_wp_y,path_wp_z,path_wp_vx,path_wp_vy,path_wp_vz,final_waypoints, nearest_waypoint_roll, base_waypoints
 	final_waypoints = msg
 	base_waypoints = msg
-	path_wp_x=np.array([])
-	path_wp_y=np.array([])
-	path_wp_z=np.array([])
-	path_wp_vx=np.array([])
-	path_wp_vy=np.array([])
-	path_wp_vz=np.array([])
+	l_path_wp_x=np.array([])
+	l_path_wp_y=np.array([])
+	l_path_wp_z=np.array([])
+	l_path_wp_vx=np.array([])
+	l_path_wp_vy=np.array([])
+	l_path_wp_vz=np.array([])
 	nearest_waypoint_quat = (base_waypoints.waypoints[0].pose.pose.orientation.x, base_waypoints.waypoints[0].pose.pose.orientation.y, base_waypoints.waypoints[0].pose.pose.orientation.z, base_waypoints.waypoints[0].pose.pose.orientation.w)
 	nearest_waypoint_eul = tf.transformations.euler_from_quaternion(nearest_waypoint_quat)
 	nearest_waypoint_roll = nearest_waypoint_eul[0]
 	f=open("testing_waypoints.txt", "a+")
-	f.write('No. of Waypoints received: ' + str(len(base_waypoints.waypoints)) + '\n')
+	print('No. of BAse Waypoints received: ' + str(len(base_waypoints.waypoints)) + '\n')
+	f.write('No. of BAse Waypoints received: ' + str(len(base_waypoints.waypoints)) + '\n')
 	for i in range(len(base_waypoints.waypoints)):
-		f.write(str(base_waypoints.waypoints[i]) + '\n')
-		path_wp_x = np.append(path_wp_x,base_waypoints.waypoints[i].pose.pose.position.x)
-		path_wp_y = np.append(path_wp_y,base_waypoints.waypoints[i].pose.pose.position.y)
-		path_wp_z = np.append(path_wp_z,base_waypoints.waypoints[i].pose.pose.position.z)
-		path_wp_vx = np.append(path_wp_vx,base_waypoints.waypoints[i].twist.twist.linear.x)
-		path_wp_vy = np.append(path_wp_vy,base_waypoints.waypoints[i].twist.twist.linear.y)
-		path_wp_vz = np.append(path_wp_vz,base_waypoints.waypoints[i].twist.twist.linear.z)
-	print('waypoints received') 
+		l_path_wp_x = np.append(l_path_wp_x,base_waypoints.waypoints[i].pose.pose.position.x)
+		l_path_wp_y = np.append(l_path_wp_y,base_waypoints.waypoints[i].pose.pose.position.y)
+		l_path_wp_z = np.append(l_path_wp_z,base_waypoints.waypoints[i].pose.pose.position.z)
+		l_path_wp_vx = np.append(l_path_wp_vx,base_waypoints.waypoints[i].twist.twist.linear.x)
+		l_path_wp_vy = np.append(l_path_wp_vy,base_waypoints.waypoints[i].twist.twist.linear.y)
+		l_path_wp_vz = np.append(l_path_wp_vz,base_waypoints.waypoints[i].twist.twist.linear.z)
+	path_wp_x=l_path_wp_x
+	path_wp_y=l_path_wp_y
+	path_wp_z=l_path_wp_z
+	path_wp_vx=l_path_wp_vx
+	path_wp_vy=l_path_wp_vy
+	path_wp_vz=l_path_wp_vz
 
 def current_pose_callback(msg):	
 	global x,y,z,roll
@@ -325,11 +332,14 @@ def current_velocity_callback(msg):
 	f=open("testing_velocity.txt", "a+")
 	f.write(str(msg))
 
+def s0_callback(msg):
+	global current_course_position
+	current_course_position = msg.data
 
-def obstacle_callback(msg):
-	received_obstacle = msg
-	f=open("testing_obstacles_full_msg.txt", "a+")
-	f.write( str(received_obstacle) + '\n')
+#def obstacle_callback(msg):
+#	received_obstacle = msg
+#	f=open("testing_obstacles_full_msg.txt", "a+")
+#	f.write( str(received_obstacle) + '\n')
 
 
 def main():
@@ -394,11 +404,12 @@ def main():
         plt.show()
 
 def wp3_frenet():
-	global fx, fy, path_wp_x, path_wp_y, previous_speed
-	print(__file__ + " start!!")
+	global path_wp_x, path_wp_y, previous_speed
+	print("planning frenet path")
 	start = time.time()
 	fx = []
 	fy = []
+	
 	# way points
 	wx = path_wp_x
 	wy = path_wp_y
@@ -413,18 +424,24 @@ def wp3_frenet():
 	
 	
 	# initial state
-	c_speed = current_speed/ 3.6 # current speed [m/s]
+	c_speed = current_speed # current speed [m/s]
 	c_d = np.sqrt((x-wx[0])**2 + (y-wy[0])**2)#current lateral position
 	c_d_d =  c_speed*np.sin(roll-nearest_waypoint_roll)  #current lateral speed
-	c_d_dd = (c_speed - (previous_speed)/3.6)/(start - time.time())**2 # current lateral acceleration [m/s]
-	s0 = 0.0  # current course position
+	c_d_dd = (c_speed - (previous_speed))/(start - time.time())**2 # current lateral acceleration [m/s]
+	s0 = float(current_course_position)#0.0  # current course position
+	
 	path = frenet_optimal_planning(csp, s0, c_speed, c_d, c_d_d, c_d_dd, ob) #commented obstacles 
 	previous_speed = current_speed
 	if np.hypot(path.x[1] - tx[-1], path.y[1] - ty[-1]) <= 1.0:
 		print("Goal reached")
+	#if len(path.x)>0:
 	for i in range(len(path.x)):
 		fx.append(path.x[i])
 		fy.append(path.y[i])
+	#else :
+	#	fx = wx
+	#	fy = wy
+	return fx,fy
 
 if __name__ == '__main__':
 	try:
@@ -435,26 +452,31 @@ if __name__ == '__main__':
 		pose_sub = rospy.Subscriber('/current_pose',PoseStamped,current_pose_callback)
 		velo_sub = rospy.Subscriber('/current_velocity',TwistStamped,current_velocity_callback)
 		waypoints_sub = rospy.Subscriber('/base_waypoints', Lane,waypoints_callback)
-		objects_sub = rospy.Subscriber('/prediction/motion_predictor/objects', DetectedObjectArray,obstacle_callback)
+		s0_sub = rospy.Subscriber('/closest_waypoint', Int32,s0_callback)
+		#objects_sub = rospy.Subscriber('/prediction/motion_predictor/objects', DetectedObjectArray,obstacle_callback)
 		#main()
 		
 		rate = rospy.Rate(10) # 10hz	
 		while not rospy.is_shutdown():
-			if final_waypoints.waypoints:
-				wp3_frenet()
-				time.sleep(0.2)
-				if len(fx)>0:
-					plt.gcf()
-					plt.clf()
-					for i in range(len(fx)):
-						final_waypoints.waypoints[i].pose.pose.position.x = fx[i]
-						final_waypoints.waypoints[i].pose.pose.position.y = fy[i]
-						plt.plot(fx[i],fy[i],"xk")
-				plt.plot(path_wp_x,path_wp_y, "or")
-				plt.grid(True)
-				plt.pause(0.001)
+			if len(final_waypoints.waypoints)>0:
+				fx, fy = wp3_frenet()
+				time.sleep(0.001)
+				#print('No. of fin Waypoints calculated: ' + str(len(fx)) + '\n')
+				while not len(final_waypoints.waypoints)==len(fx):
+					fx.pop()
+					fy.pop()
+				#plt.gcf()
+				#plt.clf()
+				print('No. of final Waypoints calculated: ' + str(len(fx)) + '\n')
 				
+				for i in range(len(fx)):
+					final_waypoints.waypoints[i].pose.pose.position.x = fx[i]
+					final_waypoints.waypoints[i].pose.pose.position.y = fy[i]
+					#plt.plot(fx[i],fy[i],"xk")
 				final_waypoints_pub.publish(final_waypoints)
+			#plt.plot(path_wp_x,path_wp_y, "or")
+			#plt.grid(True)
+			#plt.pause(0.001)
 			rate.sleep()
 		rospy.spin()
 	except rospy.ROSInterruptException:
