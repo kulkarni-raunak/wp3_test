@@ -12,7 +12,7 @@ import rospy
 rospy.init_node('WP3_Autoware', anonymous=True)
 uuid = roslaunch.rlutil.get_or_generate_uuid(None, False)
 roslaunch.configure_logging(uuid)
-launch = roslaunch.parent.ROSLaunchParent(uuid, ["/home/carla-autoware/carla_autoware_agent/launch/carla_autoware_agent.launch"])
+launch = roslaunch.parent.ROSLaunchParent(uuid, ["/home/autoware/carla-autoware/carla-autoware-agent/launch/carla_autoware_agent.launch"])
 launch.start()
 rospy.loginfo("started")
 
